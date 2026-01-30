@@ -79,16 +79,19 @@ const CSI: &str = "\x1b[";
 fn main() -> std::io::Result<()> {
     let mut input = std::io::stdin();
     let in_handle = input.as_raw_handle();
+    let old_in_mode;
     let mut in_mode = 0u32;
 
     let mut output = std::io::stdout();
     let out_handle = output.as_raw_handle();
+    let old_out_mode;
     let mut out_mode = 0u32;
 
     let mut console_screen_buffer_info = CONSOLE_SCREEN_BUFFER_INFO::default();
 
     unsafe {
         GetConsoleMode(in_handle, &mut in_mode);
+        old_in_mode = in_mode;
         // Disable echo input, line input, and processed input
         SetConsoleMode(
             in_handle,
@@ -96,6 +99,7 @@ fn main() -> std::io::Result<()> {
         );
 
         GetConsoleMode(out_handle, &mut out_mode);
+        old_out_mode = out_mode;
         // Enable virtual terminal processing
         SetConsoleMode(out_handle, out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
 
@@ -135,6 +139,11 @@ fn main() -> std::io::Result<()> {
     // Leave the alternate buffer
     print!("{}{}", CSI, "?1049l");
     output.flush()?;
+
+    unsafe {
+        SetConsoleMode(in_handle, old_in_mode);
+        SetConsoleMode(out_handle, old_out_mode);
+    }
 
     Ok(())
 }
