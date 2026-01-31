@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Write},
+    io::{Read, Stdin, Stdout, Write},
     os::windows::io::AsRawHandle,
 };
 
@@ -76,51 +76,137 @@ const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
 const ESC: &str = "\x1b";
 const CSI: &str = "\x1b[";
 
-fn main() -> std::io::Result<()> {
-    let mut input = std::io::stdin();
-    let in_handle = input.as_raw_handle();
-    let old_in_mode;
-    let mut in_mode = 0u32;
+struct Terminal {
+    screen: Screen,
+    input: Stdin,
+    input_handle: HANDLE,
+    in_mode: u32,
+    out_mode: u32,
+    saved_in_mode: u32,
+    saved_out_mode: u32,
+}
 
-    let mut output = std::io::stdout();
-    let out_handle = output.as_raw_handle();
-    let old_out_mode;
-    let mut out_mode = 0u32;
+impl Terminal {
+    fn new(input: Stdin, output: Stdout) -> Self {
+        let output_handle = output.as_raw_handle();
+        let screen = Screen::new(output, output_handle);
 
-    let mut console_screen_buffer_info = CONSOLE_SCREEN_BUFFER_INFO::default();
+        let input_handle = input.as_raw_handle();
 
-    unsafe {
-        GetConsoleMode(in_handle, &mut in_mode);
-        old_in_mode = in_mode;
-        // Disable echo input, line input, and processed input
-        SetConsoleMode(
-            in_handle,
-            in_mode & !(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT),
-        );
-
-        GetConsoleMode(out_handle, &mut out_mode);
-        old_out_mode = out_mode;
-        // Enable virtual terminal processing
-        SetConsoleMode(out_handle, out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-
-        GetConsoleScreenBufferInfo(out_handle, &mut console_screen_buffer_info);
+        Terminal {
+            screen,
+            input,
+            input_handle: input_handle,
+            in_mode: 0,
+            out_mode: 0,
+            saved_in_mode: 0,
+            saved_out_mode: 0,
+        }
     }
 
-    let window_size = COORD {
-        x: console_screen_buffer_info.sr_window.right - console_screen_buffer_info.sr_window.left
-            + 1,
-        y: console_screen_buffer_info.sr_window.bottom - console_screen_buffer_info.sr_window.top
-            + 1,
-    };
+    fn enable_raw_mode(&mut self) {
+        unsafe {
+            GetConsoleMode(self.input_handle, &mut self.in_mode);
+            self.saved_in_mode = self.in_mode;
+            // Disable echo input, line input, and processed input
+            SetConsoleMode(
+                self.input_handle,
+                self.in_mode & !(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT),
+            );
+        }
+    }
 
-    println!("Window size: {:?}", window_size);
+    fn disable_raw_mode(&mut self) {
+        unsafe {
+            SetConsoleMode(self.input_handle, self.saved_in_mode);
+        }
+    }
 
-    // Enter in the alternate buffer
-    print!("{}{}", ESC, "[?1049h");
-    output.flush()?;
+    fn enable_virtual_terminal_processing(&mut self) {
+        unsafe {
+            GetConsoleMode(self.screen.handle, &mut self.out_mode);
+            self.saved_out_mode = self.out_mode;
+            // Enable virtual terminal processing
+            SetConsoleMode(
+                self.screen.handle,
+                self.out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+            );
+        }
+    }
+
+    fn disable_virtual_terminal_processing(&mut self) {
+        unsafe {
+            SetConsoleMode(self.screen.handle, self.saved_out_mode);
+        }
+    }
+
+    fn enter_alternate_buffer(&mut self) -> Result<(), std::io::Error> {
+        print!("{}{}", ESC, "[?1049h");
+        self.screen.output.flush()?;
+        Ok(())
+    }
+
+    fn exit_alternate_buffer(&mut self) -> Result<(), std::io::Error> {
+        print!("{}{}", CSI, "?1049l");
+        self.screen.output.flush()?;
+        Ok(())
+    }
+
+    fn read_key(&mut self, buffer: &mut [u8]) -> Result<usize, std::io::Error> {
+        self.input.read(buffer)
+    }
+}
+
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        self.exit_alternate_buffer().unwrap();
+        self.disable_virtual_terminal_processing();
+        self.disable_raw_mode();
+    }
+}
+
+struct Screen {
+    output: Stdout,
+    handle: HANDLE,
+    screen_size: COORD,
+}
+
+impl Screen {
+    fn new(output: Stdout, handle: HANDLE) -> Self {
+        Screen {
+            output,
+            handle,
+            screen_size: COORD { x: 0, y: 0 },
+        }
+    }
+
+    fn get_window_size(&self) -> COORD {
+        unsafe {
+            let mut console_screen_buffer_info = CONSOLE_SCREEN_BUFFER_INFO::default();
+            GetConsoleScreenBufferInfo(self.handle, &mut console_screen_buffer_info);
+            COORD {
+                x: console_screen_buffer_info.sr_window.right
+                    - console_screen_buffer_info.sr_window.left
+                    + 1,
+                y: console_screen_buffer_info.sr_window.bottom
+                    - console_screen_buffer_info.sr_window.top
+                    + 1,
+            }
+        }
+    }
+}
+
+fn main() -> std::io::Result<()> {
+    let mut terminal = Terminal::new(std::io::stdin(), std::io::stdout());
+
+    terminal.enable_raw_mode();
+    terminal.enable_virtual_terminal_processing();
+    terminal.enter_alternate_buffer()?;
+
+    println!("Window size: {:?}", terminal.screen.get_window_size());
 
     let mut buffer = [0u8; 32];
-    while let Ok(n) = input.read(&mut buffer) {
+    while let Ok(n) = terminal.read_key(&mut buffer) {
         if n == 0 {
             break;
         }
@@ -132,17 +218,8 @@ fn main() -> std::io::Result<()> {
 
         if let Ok(string) = std::str::from_utf8(&buffer[..n]) {
             print!("{}", string);
-            output.flush()?;
+            terminal.screen.output.flush()?;
         }
-    }
-
-    // Leave the alternate buffer
-    print!("{}{}", CSI, "?1049l");
-    output.flush()?;
-
-    unsafe {
-        SetConsoleMode(in_handle, old_in_mode);
-        SetConsoleMode(out_handle, old_out_mode);
     }
 
     Ok(())
