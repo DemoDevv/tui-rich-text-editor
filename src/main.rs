@@ -145,12 +145,12 @@ impl Terminal {
     }
 
     fn enter_alternate_buffer(&mut self) -> Result<(), std::io::Error> {
-        print!("{}{}", ESC, "[?1049h");
+        write!(self.screen.output, "{}{}", ESC, "[?1049h")?;
         self.screen.output.flush()
     }
 
     fn exit_alternate_buffer(&mut self) -> Result<(), std::io::Error> {
-        print!("{}{}", CSI, "?1049l");
+        write!(self.screen.output, "{}{}", CSI, "?1049l")?;
         self.screen.output.flush()
     }
 
@@ -199,13 +199,13 @@ impl Screen {
 
     #[deprecated = "should use UTF-8 symbols"]
     fn enable_line_drawing(&mut self) -> Result<(), std::io::Error> {
-        print!("{}{}", ESC, "(0");
+        write!(self.output, "{}{}", ESC, "(0")?;
         self.output.flush()
     }
 
     #[deprecated = "should use UTF-8 symbols"]
     fn disable_line_drawing(&mut self) -> Result<(), std::io::Error> {
-        print!("{}{}", ESC, "(B");
+        write!(self.output, "{}{}", ESC, "(B")?;
         self.output.flush()
     }
 
@@ -220,7 +220,7 @@ impl Screen {
     }
 
     fn move_cursor(&mut self, coord: COORD) -> Result<(), std::io::Error> {
-        print!("{}{}", ESC, format!("[{};{}H", coord.y, coord.x));
+        write!(self.output, "{}[{};{}H", ESC, coord.y, coord.x)?;
         self.output.flush()
     }
 }
@@ -234,7 +234,7 @@ fn main() -> std::io::Result<()> {
 
     println!("Window size: {:?}", terminal.screen.get_window_size());
 
-    for i in 0..10 {
+    for i in 1..11 {
         terminal
             .screen
             .draw_at(COORD { x: i, y: i }, Line::Intersection)?;
@@ -252,7 +252,7 @@ fn main() -> std::io::Result<()> {
         }
 
         if let Ok(string) = std::str::from_utf8(&buffer[..n]) {
-            print!("{}", string);
+            write!(terminal.screen.output, "{}", string)?;
             terminal.screen.output.flush()?;
         }
     }
