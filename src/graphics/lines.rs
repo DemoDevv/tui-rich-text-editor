@@ -1,5 +1,4 @@
-use std::io::Stdout;
-use std::io::Write;
+use crate::graphics::Drawable;
 
 pub enum Line {
     LeftBottomCorner,
@@ -15,22 +14,21 @@ pub enum Line {
     Vertical,
 }
 
-impl Line {
-    pub fn draw(&self, output: &mut Stdout) -> Result<(), std::io::Error> {
-        match self {
-            Line::LeftBottomCorner => print!("j"),
-            Line::LeftTopCorner => print!("k"),
-            Line::RightTopCorner => print!("l"),
-            Line::RightBottomCorner => print!("m"),
-            Line::Intersection => print!("n"),
-            Line::Horizontal => print!("q"),
-            Line::LeftIntersect => print!("t"),
-            Line::RightIntersect => print!("u"),
-            Line::TopIntersect => print!("v"),
-            Line::BottomIntersect => print!("w"),
-            Line::Vertical => print!("x"),
-        }
-        output.flush()?;
-        Ok(())
+impl Drawable for Line {
+    fn draw(&self, writer: &mut impl std::io::Write) -> Result<(), std::io::Error> {
+        let symbol = match self {
+            Line::LeftBottomCorner => "└",
+            Line::LeftTopCorner => "┌",
+            Line::RightTopCorner => "┐",
+            Line::RightBottomCorner => "┘",
+            Line::Intersection => "┼",
+            Line::Horizontal => "─",
+            Line::LeftIntersect => "├",
+            Line::RightIntersect => "┤",
+            Line::TopIntersect => "┬",
+            Line::BottomIntersect => "┴",
+            Line::Vertical => "│",
+        };
+        write!(writer, "{}", symbol)
     }
 }
