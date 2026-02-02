@@ -216,8 +216,7 @@ impl Screen {
 
     fn draw_at(&mut self, coord: COORD, item: impl Drawable) -> Result<(), std::io::Error> {
         self.move_cursor(coord)?;
-        item.draw(&mut self.output)?;
-        self.output.flush()
+        self.draw(item)
     }
 
     fn move_cursor(&mut self, coord: COORD) -> Result<(), std::io::Error> {
