@@ -3,6 +3,8 @@ use std::{
     os::windows::io::AsRawHandle,
 };
 
+mod graphics;
+
 type BOOL = i32;
 type SHORT = i16;
 type WORD = u16;
