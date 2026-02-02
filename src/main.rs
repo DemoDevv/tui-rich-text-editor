@@ -3,6 +3,8 @@ use std::{
     os::windows::io::AsRawHandle,
 };
 
+use crate::graphics::{Drawable, lines::Line};
+
 mod graphics;
 
 type BOOL = i32;
@@ -144,14 +146,12 @@ impl Terminal {
 
     fn enter_alternate_buffer(&mut self) -> Result<(), std::io::Error> {
         print!("{}{}", ESC, "[?1049h");
-        self.screen.output.flush()?;
-        Ok(())
+        self.screen.output.flush()
     }
 
     fn exit_alternate_buffer(&mut self) -> Result<(), std::io::Error> {
         print!("{}{}", CSI, "?1049l");
-        self.screen.output.flush()?;
-        Ok(())
+        self.screen.output.flush()
     }
 
     fn read_key(&mut self, buffer: &mut [u8]) -> Result<usize, std::io::Error> {
@@ -197,16 +197,32 @@ impl Screen {
         }
     }
 
+    #[deprecated = "should use UTF-8 symbols"]
     fn enable_line_drawing(&mut self) -> Result<(), std::io::Error> {
         print!("{}{}", ESC, "(0");
-        self.output.flush()?;
-        Ok(())
+        self.output.flush()
     }
 
+    #[deprecated = "should use UTF-8 symbols"]
     fn disable_line_drawing(&mut self) -> Result<(), std::io::Error> {
         print!("{}{}", ESC, "(B");
-        self.output.flush()?;
-        Ok(())
+        self.output.flush()
+    }
+
+    fn draw(&mut self, item: impl Drawable) -> Result<(), std::io::Error> {
+        item.draw(&mut self.output)?;
+        self.output.flush()
+    }
+
+    fn draw_at(&mut self, coord: COORD, item: impl Drawable) -> Result<(), std::io::Error> {
+        self.move_cursor(coord)?;
+        item.draw(&mut self.output)?;
+        self.output.flush()
+    }
+
+    fn move_cursor(&mut self, coord: COORD) -> Result<(), std::io::Error> {
+        print!("{}{}", ESC, format!("[{};{}H", coord.y, coord.x));
+        self.output.flush()
     }
 }
 
@@ -217,14 +233,13 @@ fn main() -> std::io::Result<()> {
     terminal.enable_virtual_terminal_processing();
     terminal.enter_alternate_buffer()?;
 
-    terminal.screen.enable_line_drawing()?;
-    for _ in 0..10 {
-        print!("q");
-    }
-    terminal.screen.output.flush()?;
-    terminal.screen.disable_line_drawing()?;
-
     println!("Window size: {:?}", terminal.screen.get_window_size());
+
+    for i in 0..10 {
+        terminal
+            .screen
+            .draw_at(COORD { x: i, y: i }, Line::Intersection)?;
+    }
 
     let mut buffer = [0u8; 32];
     while let Ok(n) = terminal.read_key(&mut buffer) {
