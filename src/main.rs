@@ -194,6 +194,18 @@ impl Screen {
             }
         }
     }
+
+    fn enable_line_drawing(&mut self) -> Result<(), std::io::Error> {
+        print!("{}{}", ESC, "(0");
+        self.output.flush()?;
+        Ok(())
+    }
+
+    fn disable_line_drawing(&mut self) -> Result<(), std::io::Error> {
+        print!("{}{}", ESC, "(B");
+        self.output.flush()?;
+        Ok(())
+    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -202,6 +214,13 @@ fn main() -> std::io::Result<()> {
     terminal.enable_raw_mode();
     terminal.enable_virtual_terminal_processing();
     terminal.enter_alternate_buffer()?;
+
+    terminal.screen.enable_line_drawing()?;
+    for _ in 0..10 {
+        print!("q");
+    }
+    terminal.screen.output.flush()?;
+    terminal.screen.disable_line_drawing()?;
 
     println!("Window size: {:?}", terminal.screen.get_window_size());
 
