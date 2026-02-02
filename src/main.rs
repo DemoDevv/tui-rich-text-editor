@@ -3,7 +3,7 @@ use std::{
     os::windows::io::AsRawHandle,
 };
 
-use crate::graphics::{Drawable, lines::Line};
+use crate::graphics::{Drawable, FrameBuffer, VirtualCursor, lines::Line};
 
 mod graphics;
 
@@ -170,22 +170,30 @@ impl Drop for Terminal {
 struct Screen {
     output: Stdout,
     handle: HANDLE,
+    cursor: VirtualCursor,
+    front_buffer: FrameBuffer,
+    back_buffer: FrameBuffer,
     screen_size: COORD,
 }
 
 impl Screen {
     fn new(output: Stdout, handle: HANDLE) -> Self {
+        let screen_size = Self::get_window_size(handle);
+
         Screen {
             output,
             handle,
-            screen_size: COORD { x: 0, y: 0 },
+            cursor: VirtualCursor::default(),
+            front_buffer: FrameBuffer::new(screen_size.x, screen_size.y),
+            back_buffer: FrameBuffer::new(screen_size.x, screen_size.y),
+            screen_size,
         }
     }
 
-    fn get_window_size(&self) -> COORD {
+    fn get_window_size(handle: HANDLE) -> COORD {
         unsafe {
             let mut console_screen_buffer_info = CONSOLE_SCREEN_BUFFER_INFO::default();
-            GetConsoleScreenBufferInfo(self.handle, &mut console_screen_buffer_info);
+            GetConsoleScreenBufferInfo(handle, &mut console_screen_buffer_info);
             COORD {
                 x: console_screen_buffer_info.sr_window.right
                     - console_screen_buffer_info.sr_window.left
@@ -225,6 +233,36 @@ impl Screen {
     }
 }
 
+impl Write for Screen {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let characters = std::str::from_utf8(buf)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        characters.chars().for_each(|c| {
+            if c == '\n' {
+                self.cursor
+                    .set_position(0, (self.cursor.y + 1).min(self.screen_size.y));
+            } else {
+                self.back_buffer.insert(c, self.cursor.x, self.cursor.y);
+
+                let new_x_pos = (self.cursor.x + 1) % self.screen_size.x;
+                if self.cursor.x + 1 == self.screen_size.x {
+                    self.cursor
+                        .set_position(new_x_pos, (self.cursor.y + 1).min(self.screen_size.y));
+                } else {
+                    self.cursor.set_position(new_x_pos, self.cursor.y);
+                }
+            }
+        });
+
+        Ok(characters.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        todo!()
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let mut terminal = Terminal::new(std::io::stdin(), std::io::stdout());
 
@@ -232,7 +270,10 @@ fn main() -> std::io::Result<()> {
     terminal.enable_virtual_terminal_processing();
     terminal.enter_alternate_buffer()?;
 
-    println!("Window size: {:?}", terminal.screen.get_window_size());
+    println!(
+        "Window size: {:?}",
+        Screen::get_window_size(terminal.screen.handle)
+    );
 
     for i in 1..11 {
         terminal
