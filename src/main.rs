@@ -16,6 +16,7 @@ use crate::graphics::{
 
 mod graphics;
 mod rope;
+mod vector;
 
 type BOOL = i32;
 type SHORT = i16;
@@ -206,6 +207,14 @@ impl Screen {
         }
     }
 
+    fn get_real_cursor_position(handle: HANDLE) -> COORD {
+        unsafe {
+            let mut console_screen_buffer_info = CONSOLE_SCREEN_BUFFER_INFO::default();
+            GetConsoleScreenBufferInfo(handle, &mut console_screen_buffer_info);
+            console_screen_buffer_info.dw_cursor_position
+        }
+    }
+
     fn get_window_size_from_handle(handle: HANDLE) -> COORD {
         unsafe {
             let mut console_screen_buffer_info = CONSOLE_SCREEN_BUFFER_INFO::default();
@@ -326,7 +335,7 @@ fn main() -> std::io::Result<()> {
         Char::from('X'),
     )?;
 
-    terminal.screen.output.flush()?;
+    terminal.screen.flush()?;
 
     let mut buffer = [0u8; 32];
     while let Ok(n) = terminal.read_key(&mut buffer) {

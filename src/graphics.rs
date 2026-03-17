@@ -79,7 +79,7 @@ pub fn transform_normal_coord_to_terminal_coord(
     height: f32,
 ) -> COORD {
     COORD {
-        x: ((norm_coord.x as f32 + 1.) / 2. * width) as i16,
-        y: ((1. - (norm_coord.y as f32 + 1.) / 2.) * height) as i16,
+        x: ((norm_coord.x as f32 + 1.) / 2. * width).round() as i16,
+        y: ((1. - (norm_coord.y as f32 + 1.) / 2.) * height).round() as i16,
     }
 }
