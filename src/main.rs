@@ -1,3 +1,9 @@
+//! A low-level text user interface (TUI) engine for Windows.
+//!
+//! This module handles raw terminal mode, alternate screen buffers,
+//! and ANSI escape sequence rendering. It provides a buffered drawing
+//! system to minimize screen flickering and optimize performance for
+//! terminal-based applications like text editors.
 use std::{
     io::{Read, Stdin, Stdout, Write},
     os::windows::io::AsRawHandle,
