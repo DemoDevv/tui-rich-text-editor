@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{COORD, graphics::chars::Char};
+use crate::{COORD, NORM_COORD, graphics::chars::Char};
 
 pub mod chars;
 pub mod lines;
@@ -70,5 +70,16 @@ impl Default for Cell {
         Self {
             character: Char::from(' '),
         }
+    }
+}
+
+pub fn transform_normal_coord_to_terminal_coord(
+    norm_coord: NORM_COORD,
+    width: f32,
+    height: f32,
+) -> COORD {
+    COORD {
+        x: ((norm_coord.x as f32 + 1.) / 2. * width) as i16,
+        y: ((1. - (norm_coord.y as f32 + 1.) / 2.) * height) as i16,
     }
 }

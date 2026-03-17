@@ -9,7 +9,10 @@ use std::{
     os::windows::io::AsRawHandle,
 };
 
-use crate::graphics::{Drawable, FrameBuffer, VirtualCursor, chars::Char, lines::Line};
+use crate::graphics::{
+    Drawable, FrameBuffer, VirtualCursor, chars::Char, lines::Line,
+    transform_normal_coord_to_terminal_coord,
+};
 
 mod graphics;
 mod rope;
@@ -26,6 +29,13 @@ type HANDLE = *mut std::ffi::c_void;
 struct COORD {
     x: SHORT,
     y: SHORT,
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+struct NORM_COORD {
+    x: f32,
+    y: f32,
 }
 
 #[repr(C)]
@@ -297,16 +307,24 @@ fn main() -> std::io::Result<()> {
     terminal.enable_virtual_terminal_processing();
     terminal.enter_alternate_buffer()?;
 
-    println!(
-        "Window size: {:?}",
-        Screen::get_window_size_from_handle(terminal.screen.handle)
-    );
+    let screen_coord = Screen::get_window_size_from_handle(terminal.screen.handle);
+
+    println!("Window size: {:?}", screen_coord);
 
     for i in 1..11 {
         terminal
             .screen
             .draw_at(COORD { x: i, y: i }, Line::Intersection)?;
     }
+
+    terminal.screen.draw_at(
+        transform_normal_coord_to_terminal_coord(
+            NORM_COORD { x: 0., y: -0.5 },
+            screen_coord.x as f32,
+            screen_coord.y as f32,
+        ),
+        Char::from('X'),
+    )?;
 
     terminal.screen.output.flush()?;
 
