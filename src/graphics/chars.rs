@@ -7,7 +7,12 @@ pub struct Char {
 
 impl Char {
     pub fn is_newline(&self) -> bool {
-        self.char == '\n'
+        // Inn rawmode, we only have '\r' for newline
+        self.char == '\r'
+    }
+
+    pub fn is_delete(&self) -> bool {
+        self.char == '\x7f' || self.char == '\x08'
     }
 }
 

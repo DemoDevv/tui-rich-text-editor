@@ -3,9 +3,10 @@ use std::{
     os::windows::io::AsRawHandle,
 };
 
-use crate::graphics::{Drawable, FrameBuffer, VirtualCursor, lines::Line};
+use crate::graphics::{Drawable, FrameBuffer, VirtualCursor, chars::Char, lines::Line};
 
 mod graphics;
+mod rope;
 
 type BOOL = i32;
 type SHORT = i16;
@@ -15,7 +16,7 @@ type LPDWORD = *mut DWORD;
 type HANDLE = *mut std::ffi::c_void;
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 struct COORD {
     x: SHORT,
     y: SHORT,
@@ -160,6 +161,7 @@ impl Terminal {
 }
 
 impl Drop for Terminal {
+    /// Drop the terminal, exiting the alternate buffer and disabling virtual terminal processing.
     fn drop(&mut self) {
         self.exit_alternate_buffer().unwrap();
         self.disable_virtual_terminal_processing();
@@ -171,26 +173,24 @@ struct Screen {
     output: Stdout,
     handle: HANDLE,
     cursor: VirtualCursor,
-    front_buffer: FrameBuffer,
-    back_buffer: FrameBuffer,
+    frame_buffer: FrameBuffer,
     screen_size: COORD,
 }
 
 impl Screen {
     fn new(output: Stdout, handle: HANDLE) -> Self {
-        let screen_size = Self::get_window_size(handle);
+        let screen_size = Self::get_window_size_from_handle(handle);
 
         Screen {
             output,
             handle,
             cursor: VirtualCursor::default(),
-            front_buffer: FrameBuffer::new(screen_size.x, screen_size.y),
-            back_buffer: FrameBuffer::new(screen_size.x, screen_size.y),
+            frame_buffer: FrameBuffer::new(screen_size.x, screen_size.y),
             screen_size,
         }
     }
 
-    fn get_window_size(handle: HANDLE) -> COORD {
+    fn get_window_size_from_handle(handle: HANDLE) -> COORD {
         unsafe {
             let mut console_screen_buffer_info = CONSOLE_SCREEN_BUFFER_INFO::default();
             GetConsoleScreenBufferInfo(handle, &mut console_screen_buffer_info);
@@ -217,38 +217,44 @@ impl Screen {
         self.output.flush()
     }
 
-    fn draw(&mut self, item: impl Drawable) -> Result<(), std::io::Error> {
+    fn draw_and_flush(&mut self, item: impl Drawable) -> Result<(), std::io::Error> {
         item.draw(&mut self.output)?;
         self.output.flush()
     }
 
     fn draw_at(&mut self, coord: COORD, item: impl Drawable) -> Result<(), std::io::Error> {
         self.move_cursor(coord)?;
-        self.draw(item)
+        item.draw(&mut self.output)
     }
 
     fn move_cursor(&mut self, coord: COORD) -> Result<(), std::io::Error> {
-        write!(self.output, "{}[{};{}H", ESC, coord.y, coord.x)?;
-        self.output.flush()
+        write!(self.output, "{}[{};{}H", ESC, coord.y + 1, coord.x + 1)
     }
 }
 
 impl Write for Screen {
+    // note for me: we can register changes in hashmap or just a vector for tracking change and apply with O(n)
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let characters = std::str::from_utf8(buf)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-        characters.chars().for_each(|c| {
-            if c == '\n' {
+        characters.chars().map(Char::from).for_each(|c| {
+            if c.is_newline() {
                 self.cursor
-                    .set_position(0, (self.cursor.y + 1).min(self.screen_size.y));
+                    .set_position(0, (self.cursor.y + 1).min(self.screen_size.y - 1));
+            } else if c.is_delete() {
+                if self.cursor.x > 0 {
+                    self.cursor.set_position(self.cursor.x - 1, self.cursor.y);
+                }
+                self.frame_buffer
+                    .insert(Char::from(' '), self.cursor.x, self.cursor.y);
             } else {
-                self.back_buffer.insert(c, self.cursor.x, self.cursor.y);
+                self.frame_buffer.insert(c, self.cursor.x, self.cursor.y);
 
                 let new_x_pos = (self.cursor.x + 1) % self.screen_size.x;
                 if self.cursor.x + 1 == self.screen_size.x {
                     self.cursor
-                        .set_position(new_x_pos, (self.cursor.y + 1).min(self.screen_size.y));
+                        .set_position(new_x_pos, (self.cursor.y + 1).min(self.screen_size.y - 1));
                 } else {
                     self.cursor.set_position(new_x_pos, self.cursor.y);
                 }
@@ -259,7 +265,22 @@ impl Write for Screen {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        todo!()
+        for (coord, cell) in self.frame_buffer.changes() {
+            self.draw_at(coord, cell.character)?;
+        }
+
+        let final_pos = COORD {
+            x: self.cursor.x,
+            y: self.cursor.y,
+        };
+        self.move_cursor(final_pos)?;
+
+        // apply the changes
+        self.output.flush()?;
+        // clear the changes
+        self.frame_buffer.clear();
+
+        Ok(())
     }
 }
 
@@ -272,7 +293,7 @@ fn main() -> std::io::Result<()> {
 
     println!(
         "Window size: {:?}",
-        Screen::get_window_size(terminal.screen.handle)
+        Screen::get_window_size_from_handle(terminal.screen.handle)
     );
 
     for i in 1..11 {
@@ -281,21 +302,21 @@ fn main() -> std::io::Result<()> {
             .draw_at(COORD { x: i, y: i }, Line::Intersection)?;
     }
 
+    terminal.screen.output.flush()?;
+
     let mut buffer = [0u8; 32];
     while let Ok(n) = terminal.read_key(&mut buffer) {
         if n == 0 {
             break;
         }
 
+        // Handle Ctrl+Q key press
         if buffer[0] == 17 {
-            // Handle Ctrl+Q key press
             break;
         }
 
-        if let Ok(string) = std::str::from_utf8(&buffer[..n]) {
-            write!(terminal.screen.output, "{}", string)?;
-            terminal.screen.output.flush()?;
-        }
+        terminal.screen.write(&buffer[..n])?;
+        terminal.screen.flush()?;
     }
 
     Ok(())

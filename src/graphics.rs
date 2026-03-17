@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+
+use crate::{COORD, graphics::chars::Char};
+
+pub mod chars;
 pub mod lines;
 
 /// Drawable trait for objects that can be drawn on a terminal.
@@ -22,7 +27,7 @@ impl VirtualCursor {
 pub struct FrameBuffer {
     width: i16,
     height: i16,
-    buffer: Vec<Cell>,
+    tracking_buffer: HashMap<COORD, Cell>,
 }
 
 impl FrameBuffer {
@@ -30,24 +35,40 @@ impl FrameBuffer {
         Self {
             width,
             height,
-            buffer: vec![Cell::default(); (width * height) as usize],
+            tracking_buffer: HashMap::new(),
         }
     }
 
-    pub fn insert(&mut self, c: char, x: i16, y: i16) {
-        if x >= 0 && x < self.width && y >= 0 && y < self.height {
-            self.buffer[(y * self.width + x) as usize].character = c;
+    pub fn insert(&mut self, c: Char, x: i16, y: i16) {
+        if !(x >= 0 && x < self.width && y >= 0 && y < self.height) {
+            return;
         }
+
+        self.tracking_buffer
+            .insert(COORD { x, y }, Cell { character: c });
+    }
+
+    pub fn changes(&self) -> Vec<(COORD, Cell)> {
+        self.tracking_buffer
+            .iter()
+            .map(|(&coord, &cell)| (coord, cell))
+            .collect()
+    }
+
+    pub fn clear(&mut self) {
+        self.tracking_buffer.clear();
     }
 }
 
 #[derive(Clone, Copy, PartialEq)]
-struct Cell {
-    character: char,
+pub struct Cell {
+    pub character: Char,
 }
 
 impl Default for Cell {
     fn default() -> Self {
-        Self { character: ' ' }
+        Self {
+            character: Char::from(' '),
+        }
     }
 }
