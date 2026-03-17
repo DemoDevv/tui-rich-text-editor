@@ -9,9 +9,12 @@ use std::{
     os::windows::io::AsRawHandle,
 };
 
-use crate::graphics::{
-    Drawable, FrameBuffer, VirtualCursor, chars::Char, lines::Line,
-    transform_normal_coord_to_terminal_coord,
+use crate::{
+    graphics::{
+        Drawable, FrameBuffer, VirtualCursor, chars::Char, lines::Line,
+        transform_normal_coord_to_terminal_coord,
+    },
+    vector::{Vector2, Vector3},
 };
 
 mod graphics;
@@ -30,13 +33,6 @@ type HANDLE = *mut std::ffi::c_void;
 struct COORD {
     x: SHORT,
     y: SHORT,
-}
-
-#[repr(C)]
-#[derive(Debug, Default, Clone, Copy)]
-struct NORM_COORD {
-    x: f32,
-    y: f32,
 }
 
 #[repr(C)]
@@ -317,7 +313,6 @@ fn main() -> std::io::Result<()> {
     terminal.enter_alternate_buffer()?;
 
     let screen_coord = Screen::get_window_size_from_handle(terminal.screen.handle);
-
     println!("Window size: {:?}", screen_coord);
 
     for i in 1..11 {
@@ -328,12 +323,30 @@ fn main() -> std::io::Result<()> {
 
     terminal.screen.draw_at(
         transform_normal_coord_to_terminal_coord(
-            NORM_COORD { x: 0., y: -0.5 },
+            Vector2::new(0., -0.5),
             screen_coord.x as f32,
             screen_coord.y as f32,
         ),
         Char::from('X'),
     )?;
+
+    let vertices = vec![
+        Vector3::new(0.5, 0.5, 1.),
+        Vector3::new(-0.5, 0.5, 1.),
+        Vector3::new(0.5, -0.5, 1.),
+        Vector3::new(-0.5, -0.5, 1.),
+    ];
+
+    for vertex in vertices {
+        terminal.screen.draw_at(
+            transform_normal_coord_to_terminal_coord(
+                vertex.to_2d(),
+                screen_coord.x as f32,
+                screen_coord.y as f32,
+            ),
+            Char::from('C'),
+        )?;
+    }
 
     terminal.screen.flush()?;
 
